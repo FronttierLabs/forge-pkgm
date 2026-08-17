@@ -1,0 +1,4 @@
+/forge
+*.test
+*.out
+testdata/forge.conf
