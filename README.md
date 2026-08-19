@@ -76,39 +76,28 @@ go test ./...
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
   go build -trimpath -ldflags="-s -w" \
   -o forge ./cmd/forge
-```bash
 
 
-bash
 ./build.sh
-```bash
 
 
 - Or a plain static build:
-
-```bash
 
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o forge ./cmd/forge
 
 Run the tests
 go test ./...
 
-```bash
-
 - Static analysis and vulnerability checking are also supported:
 
-bash
 
 go vet ./...
 staticcheck ./...
 govulncheck ./...
 
-```bash
-
 Install the binary
 Run it from the build directory:
 
-bash
 
 ./forge --help
 
@@ -206,9 +195,6 @@ bash
 /opt/test-root/usr/...
 /opt/test-root/var/lib/forge/...
 /opt/test-root/var/cache/forge/...
-
-```bash
-
 
 - Why Forge can work on "any distro" Forge only needs:
 
