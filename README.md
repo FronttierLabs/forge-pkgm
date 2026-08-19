@@ -9,6 +9,10 @@ root filesystem.
 Status: alpha. Not yet production ready.
 
 ## What it can do now
+- Refuse removal that would break installed dependencies (forge remove --nodeps to override).
+
+- Preserve user configs on upgrade: modified Backup files are saved as .pacnew instead of being overwritten.
+
 - Install and remove binary packages from pacman-style repositories.
 
 - Resolve dependencies, including provides, conflicts, replaces, and versioned requirements like glibc>=2.39 or util-linux-libs=2.42.2.
@@ -199,10 +203,10 @@ forge install base
 
 sudo mkdir -p /opt/test-root
 
-sudo forge
---root /opt/test-root
---config /etc/forge/forge.conf
-install zlib
+sudo forge \
+  --root /opt/test-root \
+  --config /etc/forge/forge.conf \
+  install zlib
 
 ```
 
@@ -243,10 +247,6 @@ Because it is a static Go binary, you can copy forge to another system and run i
 
 ## Known **limitations**
 - This is alpha software. Missing or incomplete features include:
-
-- No config file protection yet: user-modified files in /etc may be overwritten on upgrade (no .pacnew handling).
-
-- No reverse-dependency check on remove: removing a package does not yet warn about installed packages that depend on it.
 
 - No package signature verification yet (SigLevel is parsed but not enforced).
 
