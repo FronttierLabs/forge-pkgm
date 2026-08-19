@@ -80,18 +80,13 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 
 
 bash
-
 ./build.sh
-
 ```bash
 
-
-bash
 
 - Or a plain static build:
 
 ```bash
-
 
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o forge ./cmd/forge
 
