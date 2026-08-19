@@ -67,7 +67,8 @@ Forge is intentionally easy to build on any distro with a Go toolchain.
 
 ### Build
 
-bash
+```bash
+
 git clone https://github.com/FronttierLabs/forge-pkgm.git
 cd forge-pkgm
 
@@ -76,7 +77,7 @@ go test ./...
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
   go build -trimpath -ldflags="-s -w" \
   -o forge ./cmd/forge
-```bash
+```
 
 
 ```bash
