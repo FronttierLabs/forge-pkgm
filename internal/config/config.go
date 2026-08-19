@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -14,17 +15,18 @@ type Repo struct {
 }
 
 type Config struct {
-	Root         string
-	Architecture string
-	DBPath       string
-	CacheDir     string
-	SyncInterval time.Duration
-	SigLevel     string
-	GPGDir       string
-	Keyring      string
-	XferCommand  string
-	NoExtract    []string
-	Repos        []Repo
+	Root              string
+	Architecture      string
+	DBPath            string
+	CacheDir          string
+	SyncInterval      time.Duration
+	SigLevel          string
+	GPGDir            string
+	Keyring           string
+	XferCommand       string
+	ParallelDownloads int
+	NoExtract         []string
+	Repos             []Repo
 }
 
 func Parse(path string) (*Config, error) {
@@ -125,6 +127,10 @@ func Parse(path string) (*Config, error) {
 			cfg.Keyring = val
 		case "XferCommand":
 			cfg.XferCommand = val
+		case "ParallelDownloads":
+			if n, err := strconv.Atoi(val); err == nil {
+				cfg.ParallelDownloads = n
+			}
 		case "NoExtract":
 			cfg.NoExtract = append(cfg.NoExtract, strings.Fields(val)...)
 		}

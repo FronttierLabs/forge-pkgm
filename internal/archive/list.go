@@ -38,7 +38,7 @@ func ListPackageFiltered(archivePath string, filter *PathFilter) (*pkg.PackageIn
 		}
 
 		if filter != nil && filter.Skip(name) {
-			if hdr.Typeflag == tar.TypeReg || hdr.Typeflag == tar.TypeRegA {
+			if hdr.Typeflag == tar.TypeReg {
 				if _, err := io.Copy(io.Discard, tr); err != nil {
 					return nil, nil, fmt.Errorf("discard %s: %w", name, err)
 				}
@@ -47,7 +47,7 @@ func ListPackageFiltered(archivePath string, filter *PathFilter) (*pkg.PackageIn
 		}
 
 		switch hdr.Typeflag {
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if name == ".PKGINFO" {
 				info, err = pkg.ParsePKGINFO(tr)
 				if err != nil {
@@ -68,8 +68,8 @@ func ListPackageFiltered(archivePath string, filter *PathFilter) (*pkg.PackageIn
 			files = append(files, name)
 
 		case tar.TypeDir:
-// Directory ownership is shared; skip for file conflict
-// checks. Extraction still records directories separately.
+			// Directory ownership is shared; skip for file conflict
+			// checks. Extraction still records directories separately.
 		}
 	}
 

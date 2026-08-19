@@ -16,14 +16,15 @@ type LocalEntry struct {
 	Package *pkg.PackageInfo
 	Files   []string
 	Dir     string
+	Script  string
 }
 
 func LocalEntryPath(cfg *config.Config, p *pkg.PackageInfo) string {
 	return filepath.Join(cfg.DBPath, "local", p.Name+"-"+p.Version)
 }
 
-//function for local entry cant remove
-func WriteLocalEntry(cfg *config.Config, p *pkg.PackageInfo, files []string) error {
+// function for local entry cant remove
+func WriteLocalEntry(cfg *config.Config, p *pkg.PackageInfo, files []string, script string) error {
 	dir := LocalEntryPath(cfg, p)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -47,6 +48,12 @@ func WriteLocalEntry(cfg *config.Config, p *pkg.PackageInfo, files []string) err
 	for _, file := range files {
 		if _, err := f.WriteString(file + "\n"); err != nil {
 			return err
+		}
+	}
+
+	if script != "" {
+		if err := os.WriteFile(filepath.Join(dir, "install"), []byte(script), 0o644); err != nil {
+			return fmt.Errorf("write install: %w", err)
 		}
 	}
 
@@ -82,7 +89,12 @@ func ListLocal(cfg *config.Config) ([]*LocalEntry, error) {
 			files = nil
 		}
 
-		out = append(out, &LocalEntry{Package: pi, Files: files, Dir: full})
+		out = append(out, &LocalEntry{
+			Package: pi,
+			Files:   files,
+			Dir:     full,
+			Script:  readLocalInstall(filepath.Join(full, "install")),
+		})
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -90,6 +102,14 @@ func ListLocal(cfg *config.Config) ([]*LocalEntry, error) {
 	})
 
 	return out, nil
+}
+
+func readLocalInstall(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func readLocalFiles(path string) ([]string, error) {

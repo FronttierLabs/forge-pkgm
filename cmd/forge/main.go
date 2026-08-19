@@ -89,9 +89,9 @@ func main() {
 	cfg := loadConfig(opts)
 
 	switch cmd {
-		case "version":
-			fmt.Printf("forge %s\n", version)
-		case "install":
+	case "version":
+		fmt.Printf("forge %s\n", version)
+	case "install":
 		requireArgs(cmd, cmdArgs, 1)
 		runInstall(cfg, cmdArgs)
 	case "remove":
@@ -109,6 +109,8 @@ func main() {
 	case "search":
 		requireArgs(cmd, cmdArgs, 1)
 		runSearch(cfg, cmdArgs)
+	case "clean":
+		runClean(cfg, cmdArgs)
 	case "repo-add":
 		requireArgs(cmd, cmdArgs, 2)
 		runRepoAdd(cmdArgs)
@@ -191,7 +193,6 @@ func runInstall(cfg *config.Config, targets []string) {
 	if err := install.Run(context.Background(), cfg, fetcher, syncDBs, targets); err != nil {
 		fail(err.Error())
 	}
-	fmt.Printf("forge: installed %v\n", targets)
 }
 
 func runRemove(cfg *config.Config, targets []string) {
@@ -300,6 +301,57 @@ func runRepoAdd(args []string) {
 	fmt.Printf("forge: wrote %s -> %s\n", dbPath, link)
 }
 
+func runClean(cfg *config.Config, args []string) {
+	removeSync := false
+	for _, a := range args {
+		if a == "all" {
+			removeSync = true
+		}
+	}
+
+	var freed int64
+
+	pkgDir := filepath.Join(cfg.CacheDir, "pkg")
+	freed += dirSize(pkgDir)
+	if err := os.RemoveAll(pkgDir); err != nil {
+		fail(fmt.Sprintf("clean package cache: %v", err))
+	}
+
+	if removeSync {
+		syncDir := filepath.Join(cfg.CacheDir, "sync")
+		freed += dirSize(syncDir)
+		if err := os.RemoveAll(syncDir); err != nil {
+			fail(fmt.Sprintf("clean sync cache: %v", err))
+		}
+	}
+
+	fmt.Printf("forge: freed %s from cache\n", humanSize(freed))
+}
+
+func dirSize(dir string) int64 {
+	var size int64
+	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err == nil && info != nil && !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	return size
+}
+
+func humanSize(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.2f GiB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.2f MiB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.2f KiB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
+}
+
 func printPkgInfo(p *pkg.PackageInfo) {
 	fmt.Printf("Name           : %s\n", p.Name)
 	fmt.Printf("Version        : %s\n", p.Version)
@@ -328,6 +380,7 @@ Usage:
   forge [global flags] list [repo]
   forge [global flags] info <package>
   forge [global flags] search <term>
+  forge [global flags] clean [all]
   forge repo-add <repo-name> <package-file>...
   forge version 'prints compiled forge version'
 

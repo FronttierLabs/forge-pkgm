@@ -84,12 +84,6 @@ func rpmvercmp(a, b string) int {
 		hasCaretA := i < len(a) && a[i] == '^'
 		hasCaretB := j < len(b) && b[j] == '^'
 		if hasCaretA || hasCaretB {
-			if i >= len(a) {
-				return -1
-			}
-			if j >= len(b) {
-				return 1
-			}
 			if !hasCaretA {
 				return 1
 			}

@@ -35,6 +35,37 @@ func (u *Universe) CandidatesByName(name string) []*pkg.PackageInfo {
 	return u.candidates(dep.Dep{Name: name})
 }
 
+// GroupMembers returns the packages belonging to the named group, in repo
+// priority order (first repo that contains a package name wins).
+func (u *Universe) GroupMembers(group string) []*pkg.PackageInfo {
+	seen := make(map[string]*pkg.PackageInfo)
+	order := make([]string, 0)
+
+	for _, repoName := range u.Priority {
+		repo := u.Repos[repoName]
+		if repo == nil {
+			continue
+		}
+		for _, p := range repo.Packages {
+			for _, g := range p.Groups {
+				if g != group {
+					continue
+				}
+				if _, ok := seen[p.Name]; !ok {
+					seen[p.Name] = p
+					order = append(order, p.Name)
+				}
+			}
+		}
+	}
+
+	out := make([]*pkg.PackageInfo, 0, len(order))
+	for _, name := range order {
+		out = append(out, seen[name])
+	}
+	return out
+}
+
 func (u *Universe) candidates(req dep.Dep) []*pkg.PackageInfo {
 	type cand struct {
 		pkg     *pkg.PackageInfo
@@ -86,6 +117,26 @@ func (r *Resolver) Resolve(targets []string) ([]*pkg.PackageInfo, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid target %q: %w", t, err)
 		}
+
+		if d.Op == dep.OpNone {
+			hasExact := false
+			for _, c := range r.u.CandidatesByName(d.Name) {
+				if c.Name == d.Name {
+					hasExact = true
+					break
+				}
+			}
+
+			if !hasExact {
+				if members := r.u.GroupMembers(d.Name); len(members) > 0 {
+					for _, m := range members {
+						reqs = append(reqs, dep.Dep{Name: m.Name})
+					}
+					continue
+				}
+			}
+		}
+
 		reqs = append(reqs, d)
 	}
 
@@ -248,15 +299,19 @@ func (st *solveState) toposort() ([]*pkg.PackageInfo, error) {
 		visiting  = 1
 		visited   = 2
 	)
-
 	state := map[string]int{}
 	order := make([]*pkg.PackageInfo, 0, len(selected))
+	warned := map[string]bool{}
 
 	var visit func(string) error
 	visit = func(name string) error {
 		switch state[name] {
 		case visiting:
-			return fmt.Errorf("dependency cycle at %s", name)
+			if !warned[name] {
+				fmt.Printf("warning: dependency cycle detected, breaking at %s\n", name)
+				warned[name] = true
+			}
+			return nil
 		case visited:
 			return nil
 		}

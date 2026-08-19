@@ -9,13 +9,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"forge/internal/archive"
 	"forge/internal/config"
 	"forge/internal/db"
+	"forge/internal/dep"
 	"forge/internal/fetch"
 	"forge/internal/pkg"
 	"forge/internal/resolve"
+	"forge/internal/transaction"
 	"forge/internal/vercmp"
 )
 
@@ -23,21 +27,75 @@ type Options struct {
 	AllowReplace bool
 }
 
+// Prepared is the result of a fully prepared install transaction, ready to
+// commit. Upgrade can append RemoveActions to Plan before committing
+type Prepared struct {
+	Plan        *transaction.Plan
+	Filter      *archive.PathFilter
+	DownloadDur time.Duration
+	VerifyDur   time.Duration
+}
+
+type downloadJob struct {
+	pkg      *pkg.PackageInfo
+	repoName string
+	servers  []string
+	dest     string
+}
+
 func Run(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetcher, syncDBs []*db.RepoDB, targets []string) error {
 	return RunWithOptions(ctx, cfg, fetcher, syncDBs, targets, Options{})
 }
 
 func RunWithOptions(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetcher, syncDBs []*db.RepoDB, targets []string, opts Options) error {
-	u, pkgRepo := resolve.NewUniverse(syncDBs)
+	start := time.Now()
 
-	plan, err := resolve.New(u).Resolve(targets)
+	prepared, err := Prepare(ctx, cfg, fetcher, syncDBs, targets, opts)
 	if err != nil {
 		return err
 	}
 
-	localEntries, err := db.ListLocal(cfg)
+	if prepared.Plan.IsEmpty() {
+		fmt.Println("forge: nothing to do")
+		return nil
+	}
+
+	commitStart := time.Now()
+	tx, err := transaction.New(cfg, prepared.Plan, prepared.Filter)
 	if err != nil {
 		return err
+	}
+	defer tx.Close()
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	commitDur := time.Since(commitStart)
+
+	fmt.Printf("forge: installed %d package(s) in %s (download %s, resolve+verify %s, commit %s)\n",
+		len(prepared.Plan.Actions),
+		time.Since(start),
+		prepared.DownloadDur,
+		prepared.VerifyDur,
+		commitDur,
+	)
+
+	return nil
+}
+
+// Prepare resolves, download verifie conflict-check and builds an
+// install transaction plan without mutating the filesystem or local DB.
+func Prepare(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetcher, syncDBs []*db.RepoDB, targets []string, opts Options) (*Prepared, error) {
+	u, pkgRepo := resolve.NewUniverse(syncDBs)
+
+	resolved, err := resolve.New(u).Resolve(targets)
+	if err != nil {
+		return nil, err
+	}
+
+	localEntries, err := db.ListLocal(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	localByName := make(map[string]*db.LocalEntry)
@@ -47,15 +105,13 @@ func RunWithOptions(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetc
 		}
 	}
 
-	owned := make(map[string]*db.LocalEntry)
-	for _, e := range localEntries {
-		for _, f := range e.Files {
-			owned[f] = e
-		}
+	var filter *archive.PathFilter
+	if len(cfg.NoExtract) > 0 {
+		filter = archive.NewPathFilter(cfg.NoExtract...)
 	}
 
-	finalPlan := make([]*pkg.PackageInfo, 0, len(plan))
-	for _, p := range plan {
+	finalPlan := make([]*pkg.PackageInfo, 0, len(resolved))
+	for _, p := range resolved {
 		le, installed := localByName[p.Name]
 		if installed {
 			c := vercmp.Compare(p.Version, le.Package.Version)
@@ -67,7 +123,7 @@ func RunWithOptions(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetc
 				continue
 			default:
 				if !opts.AllowReplace {
-					return fmt.Errorf("%s: %s is installed; %s is available (use forge upgrade)", p.Name, le.Package.Version, p.Version)
+					return nil, fmt.Errorf("%s: %s is installed; %s is available (use forge upgrade)", p.Name, le.Package.Version, p.Version)
 				}
 			}
 		}
@@ -75,8 +131,7 @@ func RunWithOptions(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetc
 	}
 
 	if len(finalPlan) == 0 {
-		fmt.Println("forge: nothing to do")
-		return nil
+		return &Prepared{Plan: transaction.NewPlan(), Filter: filter}, nil
 	}
 
 	serversByRepo := make(map[string][]string, len(cfg.Repos))
@@ -84,71 +139,183 @@ func RunWithOptions(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetc
 		serversByRepo[r.Name] = r.Servers
 	}
 
-	var filter *archive.PathFilter
-	if len(cfg.NoExtract) > 0 {
-		filter = archive.NewPathFilter(cfg.NoExtract...)
+	replaced := make(map[string]*db.LocalEntry)
+	replacedNames := make(map[string]bool)
+	for _, p := range finalPlan {
+		for _, raw := range p.Replaces {
+			rd, err := dep.ParseDep(raw)
+			if err != nil {
+				continue
+			}
+			oldPkg, ok := localByName[rd.Name]
+			if !ok || oldPkg.Package.Name == p.Name {
+				continue
+			}
+			if rd.Op == dep.OpNone || rd.Satisfies(oldPkg.Package.Version) {
+				if _, exists := replaced[oldPkg.Package.Name]; !exists {
+					replaced[oldPkg.Package.Name] = oldPkg
+					replacedNames[oldPkg.Package.Name] = true
+				}
+			}
+		}
 	}
 
+	//1 build download jobs for every package in the transaction.
+	jobs := make([]downloadJob, 0, len(finalPlan))
 	for _, p := range finalPlan {
 		repoName, ok := pkgRepo[p]
 		if !ok {
-			return fmt.Errorf("package %s-%s has no source repo", p.Name, p.Version)
+			return nil, fmt.Errorf("package %s-%s has no source repo", p.Name, p.Version)
 		}
-
 		servers, ok := serversByRepo[repoName]
 		if !ok || len(servers) == 0 {
-			return fmt.Errorf("no Server configured for repo %s", repoName)
+			return nil, fmt.Errorf("no Server configured for repo %s", repoName)
 		}
+		jobs = append(jobs, downloadJob{
+			pkg:      p,
+			repoName: repoName,
+			servers:  servers,
+			dest:     filepath.Join(cfg.CacheDir, "pkg", p.Filename),
+		})
+	}
 
-		pkgCache := filepath.Join(cfg.CacheDir, "pkg", p.Filename)
+	//2 download everything. Parallel when cfg.ParallelDownloads > 0.
+	dlStart := time.Now()
+	if err := downloadAll(ctx, cfg, fetcher, jobs); err != nil {
+		return nil, err
+	}
+	dlDur := time.Since(dlStart)
 
-		var lastErr error
-		downloaded := false
-		for _, server := range servers {
-			pkgURL := fetch.ExpandRepoURL(server, repoName, cfg.Architecture, p.Filename)
-			if err := fetcher.Fetch(ctx, pkgURL, pkgCache); err != nil {
-				lastErr = fmt.Errorf("download %s: %w", pkgURL, err)
-				continue
-			}
-			downloaded = true
-			break
-		}
-		if !downloaded {
-			return lastErr
-		}
+	//2.5verify, list, and conflict-check in deterministic order, then
+	// build the transaction plan.
+	planStart := time.Now()
 
-		if err := verify(p, pkgCache); err != nil {
-			return err
-		}
-
-		infoPre, filesPre, err := archive.ListPackageFiltered(pkgCache, filter)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", p.Filename, err)
-		}
-		if infoPre.Name != p.Name {
-			return fmt.Errorf("package metadata mismatch: repo has %s, archive has %s", p.Name, infoPre.Name)
-		}
-
-		for _, f := range filesPre {
-			if oe, exists := owned[f]; exists && oe.Package.Name != p.Name {
-				return fmt.Errorf("%s: file conflict: %s is owned by %s", p.Name, f, oe.Package.Name)
-			}
-		}
-
-		info, files, err := archive.ExtractPackageFiltered(pkgCache, cfg.Root, filter)
-		if err != nil {
-			return fmt.Errorf("extract %s: %w", p.Filename, err)
-		}
-		if info.Name != p.Name {
-			return fmt.Errorf("package metadata mismatch: repo has %s, archive has %s", p.Name, info.Name)
-		}
-
-		if err := db.WriteLocalEntry(cfg, info, files); err != nil {
-			return err
+	owned := make(map[string]*db.LocalEntry)
+	for _, e := range localEntries {
+		for _, f := range e.Files {
+			owned[f] = e
 		}
 	}
 
-	return nil
+	txPlan := transaction.NewPlan()
+	for _, job := range jobs {
+		p := job.pkg
+
+		if err := verify(p, job.dest); err != nil {
+			return nil, err
+		}
+
+		infoPre, filesPre, err := archive.ListPackageFiltered(job.dest, filter)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", p.Filename, err)
+		}
+		if infoPre.Name != p.Name {
+			return nil, fmt.Errorf("package metadata mismatch: repo has %s, archive has %s", p.Name, infoPre.Name)
+		}
+
+		for _, f := range filesPre {
+			if oe, exists := owned[f]; exists && oe.Package.Name != p.Name && !replacedNames[oe.Package.Name] {
+				return nil, fmt.Errorf("%s: file conflict: %s is owned by %s", p.Name, f, oe.Package.Name)
+			}
+		}
+
+		le := &db.LocalEntry{
+			Package: infoPre,
+			Files:   filesPre,
+			Dir:     db.LocalEntryPath(cfg, infoPre),
+		}
+		for _, f := range filesPre {
+			owned[f] = le
+		}
+
+		installScript, err := archive.ReadInstall(job.dest)
+		if err != nil {
+			return nil, fmt.Errorf("read install script %s: %w", p.Filename, err)
+		}
+
+		oldVersion := ""
+		if le, exists := localByName[p.Name]; exists {
+			if vercmp.Compare(p.Version, le.Package.Version) > 0 {
+				oldVersion = le.Package.Version
+			}
+		}
+
+		txPlan.AddInstall(&transaction.InstallAction{
+			Pkg:        p,
+			Archive:    job.dest,
+			Files:      filesPre,
+			Script:     string(installScript),
+			OldVersion: oldVersion,
+		})
+	}
+	for _, oldPkg := range replaced {
+		txPlan.AddRemove(&transaction.RemoveAction{
+			Entry: &db.LocalEntry{
+				Package: oldPkg.Package,
+				Files:   oldPkg.Files,
+				Dir:     oldPkg.Dir,
+			},
+			Script: oldPkg.Script,
+		})
+	}
+
+	verifyDur := time.Since(planStart)
+
+	return &Prepared{
+		Plan:        txPlan,
+		Filter:      filter,
+		DownloadDur: dlDur,
+		VerifyDur:   verifyDur,
+	}, nil
+}
+
+// downloadAll fetches every job to its destination. workers controls how many
+// concurrent fetches run; 0 or 1 means sequential.
+func downloadAll(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetcher, jobs []downloadJob) error {
+	workers := cfg.ParallelDownloads
+	if workers <= 1 {
+		workers = 1
+	}
+	if workers > len(jobs) {
+		workers = len(jobs)
+	}
+
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		firstErr error
+		sem      = make(chan struct{}, workers)
+	)
+
+	for _, job := range jobs {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(job downloadJob) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			var lastErr error
+			for _, server := range job.servers {
+				url := fetch.ExpandRepoURL(server, job.repoName, cfg.Architecture, job.pkg.Filename)
+				if err := fetcher.Fetch(ctx, url, job.dest); err != nil {
+					lastErr = fmt.Errorf("download %s: %w", url, err)
+					continue
+				}
+				lastErr = nil
+				break
+			}
+			if lastErr != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = lastErr
+				}
+				mu.Unlock()
+			}
+		}(job)
+	}
+
+	wg.Wait()
+	return firstErr
 }
 
 func verify(p *pkg.PackageInfo, file string) error {

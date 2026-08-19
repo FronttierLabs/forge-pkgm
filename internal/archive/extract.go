@@ -42,10 +42,8 @@ func ExtractPackageFiltered(archivePath, root string, filter *PathFilter) (*pkg.
 		}
 
 		if filter != nil && filter.Skip(name) {
-			// For regular files we must consume the payload so the tar
-			// reader stays positioned correctly. Other entry types have
-			// no payload.
-			if hdr.Typeflag == tar.TypeReg || hdr.Typeflag == tar.TypeRegA {
+			// For regular files must consume the payload so the tar reader stays positioned correctly. Other entry types have no payload
+			if hdr.Typeflag == tar.TypeReg {
 				if _, err := io.Copy(io.Discard, tr); err != nil {
 					return nil, nil, fmt.Errorf("discard %s: %w", name, err)
 				}
@@ -54,7 +52,7 @@ func ExtractPackageFiltered(archivePath, root string, filter *PathFilter) (*pkg.
 		}
 
 		switch hdr.Typeflag {
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			switch name {
 			case ".PKGINFO":
 				info, err = pkg.ParsePKGINFO(tr)
@@ -93,6 +91,9 @@ func ExtractPackageFiltered(archivePath, root string, filter *PathFilter) (*pkg.
 			if err != nil {
 				return nil, nil, err
 			}
+			if err := ensureNoSymlinkPath(root, target); err != nil {
+				return nil, nil, err
+			}
 			dirMode := os.FileMode(hdr.Mode) & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
 			if err := os.MkdirAll(target, dirMode); err != nil {
 				return nil, nil, fmt.Errorf("mkdir %s: %w", target, err)
@@ -100,7 +101,6 @@ func ExtractPackageFiltered(archivePath, root string, filter *PathFilter) (*pkg.
 			if err := os.Chmod(target, dirMode); err != nil {
 				return nil, nil, fmt.Errorf("chmod %s: %w", target, err)
 			}
-			files = append(files, name)
 
 		case tar.TypeSymlink:
 			target, err := safeTarget(root, name)
@@ -128,6 +128,12 @@ func ExtractPackageFiltered(archivePath, root string, filter *PathFilter) (*pkg.
 			}
 			linkTarget, err := safeTarget(root, cleanArchiveName(hdr.Linkname))
 			if err != nil {
+				return nil, nil, err
+			}
+			if err := ensureNoSymlinkParent(root, target); err != nil {
+				return nil, nil, err
+			}
+			if err := ensureNoSymlinkPath(root, filepath.Dir(linkTarget)); err != nil {
 				return nil, nil, err
 			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
@@ -184,8 +190,11 @@ func safeTarget(root, name string) (string, error) {
 	return target, nil
 }
 
-func ensureNoSymlinkParent(root, target string) error {
-	rel, err := filepath.Rel(root, filepath.Dir(target))
+// ensureNoSymlinkPath refuses if target or any ancestor inside root is an
+// existing symlink. Missing components are treated as safe because they
+// will be created as real directories by extraction.
+func ensureNoSymlinkPath(root, target string) error {
+	rel, err := filepath.Rel(root, target)
 	if err != nil {
 		return err
 	}
@@ -203,6 +212,7 @@ func ensureNoSymlinkParent(root, target string) error {
 		fi, err := os.Lstat(cur)
 		if err != nil {
 			if os.IsNotExist(err) {
+				// The rest of the path cannot exist yet either.
 				return nil
 			}
 			return err
@@ -213,6 +223,12 @@ func ensureNoSymlinkParent(root, target string) error {
 	}
 
 	return nil
+}
+
+// ensureNoSymlinkParent checks only the ancestors of target. The leaf itself
+// is allowed to be a symlink because it will be removed by removeExisting.
+func ensureNoSymlinkParent(root, target string) error {
+	return ensureNoSymlinkPath(root, filepath.Dir(target))
 }
 
 // removeExisting emoves a path unless it is a directory. It is safe
@@ -238,8 +254,8 @@ func removeExisting(target string) error {
 }
 
 func writeRegular(target string, hdr *tar.Header, tr *tar.Reader) error {
-// Preserve setuid, setgid, and sticky bits as well as normal
-// permissions. Forge must not strip them if strip it fails
+	// Preserve setuid, setgid, and sticky bits as well as normal
+	// permissions. Forge must not strip them if strip it fails
 	mode := os.FileMode(hdr.Mode) & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
 
 	f, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)

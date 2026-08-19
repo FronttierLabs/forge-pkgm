@@ -82,7 +82,7 @@ sudo mkdir -p /etc/forge
 
 # config 
 
-if you want stability with forge use the default recoomended '/etc/forge/forge.conf'
+if you want stability with forge use the default recomended '/etc/forge/forge.conf'
 
 ```bash
 [options]

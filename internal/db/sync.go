@@ -73,7 +73,7 @@ func LoadRepo(ctx context.Context, f *fetch.Fetcher, cfg *config.Config, repo co
 			return nil, fmt.Errorf("read %s: %w", dbCache, err)
 		}
 
-		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 		if filepath.Base(hdr.Name) != "desc" {
