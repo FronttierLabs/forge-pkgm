@@ -27,6 +27,7 @@ type options struct {
 	conf     string
 	arch     string
 	verbose  int
+	nodeps   bool
 }
 
 func main() {
@@ -71,6 +72,8 @@ func main() {
 				fail("--arch requires a value")
 			}
 			opts.arch = args[i]
+		case "--nodeps":
+			opts.nodeps = true
 		default:
 			if strings.HasPrefix(args[i], "-") {
 				fail(fmt.Sprintf("unknown flag %q", args[i]))
@@ -96,7 +99,7 @@ func main() {
 		runInstall(cfg, cmdArgs)
 	case "remove":
 		requireArgs(cmd, cmdArgs, 1)
-		runRemove(cfg, cmdArgs)
+		runRemove(cfg, cmdArgs, opts.nodeps)
 	case "update":
 		runUpdate(cfg)
 	case "upgrade":
@@ -195,8 +198,8 @@ func runInstall(cfg *config.Config, targets []string) {
 	}
 }
 
-func runRemove(cfg *config.Config, targets []string) {
-	if err := remove.Run(cfg, targets); err != nil {
+func runRemove(cfg *config.Config, targets []string, nodeps bool) {
+	if err := remove.RunWithOptions(cfg, targets, remove.Options{Nodeps: nodeps}); err != nil {
 		fail(err.Error())
 	}
 	fmt.Printf("forge: removed %v\n", targets)

@@ -85,6 +85,8 @@ func (tx *Tx) Commit() error {
 				return fmt.Errorf("extract %s: %w", inst.Archive, err)
 			}
 
+			tx.preserveConfigs(inst)
+
 			if inst.Script != "" {
 				if err := tx.runHook(hookPost, inst.Script, inst.OldVersion, inst.Pkg.Version); err != nil {
 					tx.rollback()
@@ -153,6 +155,30 @@ func (tx *Tx) runHook(hook, script, oldVer, newVer string) error {
 		return nil
 	}
 	return scriptlet.Run(context.Background(), tx.cfg.Root, script, hook, oldVer, newVer)
+}
+
+// preserveConfigs implements a conservative .pacnew policy. When an install or
+// upgrade overwrites a file listed in the package's Backup metadata, the
+// existing user file is kept and the new file is written as path.pacnew.
+func (tx *Tx) preserveConfigs(inst *InstallAction) {
+	for _, rel := range inst.Pkg.Backup {
+		backup, exists := tx.installBackups[rel]
+		if !exists {
+			continue
+		}
+
+		target := filepath.Join(tx.cfg.Root, filepath.FromSlash(rel))
+		pacnew := target + ".pacnew"
+
+		if err := os.Rename(target, pacnew); err == nil {
+			if err := os.Rename(backup, target); err == nil {
+				delete(tx.installBackups, rel)
+				fmt.Printf("forge: config %s: new file saved as %s\n", rel, filepath.Base(pacnew))
+			} else {
+				_ = os.Rename(pacnew, target)
+			}
+		}
+	}
 }
 
 // installOwned returns the set of paths that install actions will own after
