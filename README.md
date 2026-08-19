@@ -79,40 +79,59 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 ```bash
 
 
+```bash
+
 ./build.sh
 
+```
 
 - Or a plain static build:
+
+```bash
+
 
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o forge ./cmd/forge
 
 Run the tests
 go test ./...
 
+```
+
 - Static analysis and vulnerability checking are also supported:
+
+```bash
 
 
 go vet ./...
 staticcheck ./...
 govulncheck ./...
 
+```
+
 Install the binary
 Run it from the build directory:
+
+```bash
 
 
 ./forge --help
 
+```
 
 Or install it system-wide:
+
+```bash
 
 
 sudo install -m 0755 forge /usr/local/bin/forge
 sudo mkdir -p /etc/forge
 
+```
 
 ## Configuration
 - Forge reads pacman-style configuration. The default path is /etc/forge/forge.conf.
 
+```bash
 
 
 [options]
@@ -140,10 +159,13 @@ CachyOS repositories are also supported:
 
 [cachyos]
 Server = https://mirror.cachyos.org/repo/x86_64/cachyos
+```
 
 
 
 ## Usage
+
+```bash
 
 
 
@@ -158,17 +180,21 @@ forge search zlib
 forge clean
 forge clean all
 
+```
 
 - Install a group:
 
+```bash
 
 
 forge install base
 
+```
 
 
 - Install into an isolated root:
 
+```bash
 
 sudo mkdir -p /opt/test-root
 
@@ -177,15 +203,20 @@ sudo forge
 --config /etc/forge/forge.conf
 install zlib
 
+```
 
 
 - Files land under:
 
-bash
+```bash
+
 
 /opt/test-root/usr/...
 /opt/test-root/var/lib/forge/...
 /opt/test-root/var/cache/forge/...
+
+```
+
 
 - Why Forge can work on "any distro" Forge only needs:
 
