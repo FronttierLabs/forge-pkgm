@@ -101,21 +101,18 @@ Run it from the build directory:
 
 ./forge --help
 
-```bash
 
 Or install it system-wide:
 
-bash
 
 sudo install -m 0755 forge /usr/local/bin/forge
 sudo mkdir -p /etc/forge
 
-```bash
 
 ## Configuration
 - Forge reads pacman-style configuration. The default path is /etc/forge/forge.conf.
 
-bash
+
 
 [options]
 Architecture = x86_64
@@ -142,13 +139,11 @@ CachyOS repositories are also supported:
 
 [cachyos]
 Server = https://mirror.cachyos.org/repo/x86_64/cachyos
-```bash
 
 
 
 ## Usage
 
-bash
 
 
 forge version
@@ -162,21 +157,17 @@ forge search zlib
 forge clean
 forge clean all
 
-```bash
 
 - Install a group:
 
-```bash
 
 
 forge install base
 
-```bash
 
 
 - Install into an isolated root:
 
-```bash
 
 sudo mkdir -p /opt/test-root
 
@@ -185,7 +176,6 @@ sudo forge
 --config /etc/forge/forge.conf
 install zlib
 
-```bash
 
 
 - Files land under:
