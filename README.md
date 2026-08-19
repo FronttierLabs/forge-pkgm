@@ -8,6 +8,86 @@ root filesystem.
 
 Status: alpha. Not yet production ready.
 
+## First run: you MUST create a config file
+
+Forge ships with **no repositories enabled**. If you run it without a config,
+package resolution fails with:
+```bash
+
+    forge: cannot satisfy dependency "fastfetch"
+```
+That is not a bug. Forge does not know where to download from until you give it
+a pacman-style config.
+
+Create a config file:
+```bash
+    mkdir -p conf
+
+    cat > conf/forge.conf <<'EOF'
+    [options]
+    Architecture = x86_64
+    SyncInterval = 24h
+    SigLevel = Never
+    ParallelDownloads = 4
+    NoExtract = usr/share/man usr/share/doc usr/share/info usr/share/locale usr/lib/locale usr/share/gtk-doc usr/share/help
+
+    [core]
+    Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
+    Server = https://mirrors.edge.kernel.org/archlinux/$repo/os/$arch
+    Server = https://mirror.pkgbuild.com/$repo/os/$arch
+
+    [extra]
+    Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
+    Server = https://mirrors.edge.kernel.org/archlinux/$repo/os/$arch
+    Server = https://mirror.pkgbuild.com/$repo/os/$arch
+    EOF
+```
+
+Then run with `--config`:
+
+    ./forge --config conf/forge.conf install fastfetch
+
+Or install the config system-wide so you can omit `--config`:
+
+    sudo mkdir -p /etc/forge
+    sudo cp conf/forge.conf /etc/forge/forge.conf
+
+Multiple mirrors are recommended. Some mirrors resolve to IPv6-only addresses
+and will fail on hosts without IPv6 connectivity. Forge falls back to the next
+Server line automatically.
+
+---
+
+## Always install into an isolated root
+
+Forge is designed to install into an **empty directory**, not into your live
+system. Create a fake root and pass it with `--root`:
+```bash
+
+    mkdir -p ~/fakeroot
+
+    ./forge \
+      --root ~/fakeroot \
+      --config conf/forge.conf \
+      install fastfetch
+```
+Your host is never touched. Files land under:
+
+    ~/fakeroot/usr/
+    ~/fakeroot/var/lib/forge/
+    ~/fakeroot/var/cache/forge/
+
+- **Do not run `./forge install ...` without `--root` on a system you care about**:
+it would install Arch packages directly into your running system.
+
+## Debian 
+
+The Go toolchain package is called `golang`, not `go`:
+```bash
+    sudo apt install golang
+```
+After that, `go`, `go test`, and `go build` all work.
+
 ## What it can do now
 - Refuse removal that would break installed dependencies (forge remove --nodeps to override).
 
