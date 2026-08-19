@@ -78,11 +78,9 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
   -o forge ./cmd/forge
 ```bash
 
-bash
 
 ./build.sh
 
-```bash
 
 - Or a plain static build:
 
