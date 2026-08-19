@@ -81,7 +81,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 
 ./build.sh
 
-  ```bash
+```bash
 
 
 - Or a plain static build:
