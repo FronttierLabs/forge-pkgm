@@ -8,6 +8,69 @@ root filesystem.
 
 Status: alpha. Not yet production ready.
 
+## What it can do now
+- Refuse removal that would break installed dependencies (forge remove --nodeps to override).
+
+- Preserve user configs on upgrade: modified Backup files are saved as .pacnew instead of being overwritten.
+
+- Install and remove binary packages from pacman-style repositories.
+
+- Resolve dependencies, including provides, conflicts, replaces, and versioned requirements like glibc>=2.39 or util-linux-libs=2.42.2.
+
+- Expand package groups, so forge install base works.
+
+- Read and parse pacman-compatible repository databases:.db, .db.tar.zst, .db.tar.xz, .db.tar.gz.
+
+- Install into any target root with --root, so forge never touches your host.
+
+- Use multiple mirrors with automatic fallback.
+
+- Use Arch repositories, CachyOS repositories, or your own custom repo.
+
+- Download packages in parallel (ParallelDownloads in forge.conf).
+
+- Remove bloat at the source with NoExtract, such as man pages, docs, and
+locales.
+
+- Preserve setuid, setgid, and sticky bits from package archives.
+
+- Track installed files in a local package database.
+
+- Run package install scripts (.INSTALL) in a chroot: pre_install, post_install, pre_upgrade, post_upgrade, pre_remove, post_remove.
+
+- Perform atomic transactions with an exclusive database lock, file backups, and rollback on failure.
+
+- Prune the package cache with forge clean (or forge clean all for repo DBs
+too).
+
+## Why not just use pacman?
+Forge is not a pacman fork and it does not shell out to pacman or libalpm.
+It speaks the same repository/package format so it can reuse existing
+pacman-compatible repositories without needing to repackage thousands of
+packages.
+
+For Fronttier, this means:
+
+- Arch core and extra provide the base userspace.
+
+- CachyOS repos can optionally provide optimized packages.
+
+- A Fronttier fronttier repo can overlay distro-specific packages.
+
+- Forge remains one static Go binary.
+
+## Installation / building from source 
+Forge is intentionally easy to build on any distro with a Go toolchain.
+
+### Requirements
+- Go 1.24 or newer
+
+- Internet access for Go modules and package mirrors
+
+- Linux kernel
+
+### Build
+
 ## First run: you MUST create a config file
 
 Forge ships with **no repositories enabled**. If you run it without a config,
@@ -86,70 +149,7 @@ The Go toolchain package is called `golang`, not `go`:
 ```bash
     sudo apt install golang
 ```
-After that, `go`, `go test`, and `go build` all work.
 
-## What it can do now
-- Refuse removal that would break installed dependencies (forge remove --nodeps to override).
-
-- Preserve user configs on upgrade: modified Backup files are saved as .pacnew instead of being overwritten.
-
-- Install and remove binary packages from pacman-style repositories.
-
-- Resolve dependencies, including provides, conflicts, replaces, and versioned requirements like glibc>=2.39 or util-linux-libs=2.42.2.
-
-- Expand package groups, so forge install base works.
-
-- Read and parse pacman-compatible repository databases:.db, .db.tar.zst, .db.tar.xz, .db.tar.gz.
-
-- Install into any target root with --root, so forge never touches your host.
-
-- Use multiple mirrors with automatic fallback.
-
-- Use Arch repositories, CachyOS repositories, or your own custom repo.
-
-- Download packages in parallel (ParallelDownloads in forge.conf).
-
-- Remove bloat at the source with NoExtract, such as man pages, docs, and
-locales.
-
-- Preserve setuid, setgid, and sticky bits from package archives.
-
-- Track installed files in a local package database.
-
-- Run package install scripts (.INSTALL) in a chroot: pre_install, post_install, pre_upgrade, post_upgrade, pre_remove, post_remove.
-
-- Perform atomic transactions with an exclusive database lock, file backups, and rollback on failure.
-
-- Prune the package cache with forge clean (or forge clean all for repo DBs
-too).
-
-## Why not just use pacman?
-Forge is not a pacman fork and it does not shell out to pacman or libalpm.
-It speaks the same repository/package format so it can reuse existing
-pacman-compatible repositories without needing to repackage thousands of
-packages.
-
-For Fronttier, this means:
-
-- Arch core and extra provide the base userspace.
-
-- CachyOS repos can optionally provide optimized packages.
-
-- A Fronttier fronttier repo can overlay distro-specific packages.
-
-- Forge remains one static Go binary.
-
-## Installation / building from source 
-Forge is intentionally easy to build on any distro with a Go toolchain.
-
-### Requirements
-- Go 1.24 or newer
-
-- Internet access for Go modules and package mirrors
-
-- Linux kernel
-
-### Build
 
 ```bash
 

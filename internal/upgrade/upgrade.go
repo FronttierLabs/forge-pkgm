@@ -83,6 +83,8 @@ func Run(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetcher, syncDB
 	}
 	defer tx.Close()
 
+	tx.SetProgress(func(msg string) { fmt.Println("forge:", msg) })
+
 	if err := tx.Commit(); err != nil {
 		return err
 	}

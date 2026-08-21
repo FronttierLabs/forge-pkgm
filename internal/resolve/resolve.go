@@ -70,6 +70,7 @@ func (u *Universe) candidates(req dep.Dep) []*pkg.PackageInfo {
 	type cand struct {
 		pkg     *pkg.PackageInfo
 		repoIdx int
+		exact   bool
 	}
 
 	out := make([]cand, 0)
@@ -80,13 +81,25 @@ func (u *Universe) candidates(req dep.Dep) []*pkg.PackageInfo {
 		}
 		for _, p := range repo.Packages {
 			if packageMatches(p, req) {
-				out = append(out, cand{pkg: p, repoIdx: repoIdx})
+				out = append(out, cand{
+					pkg:     p,
+					repoIdx: repoIdx,
+					exact:   p.Name == req.Name,
+				})
 			}
 		}
 	}
 
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
+
+		// Exact name match always wins over a provides-only match,
+		// regardless of repo priority. A provider only satisfies a
+		// dependency when no exact-name package exists anywhere.
+		if a.exact != b.exact {
+			return a.exact
+		}
+
 		if a.repoIdx != b.repoIdx {
 			return a.repoIdx < b.repoIdx
 		}

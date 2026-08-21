@@ -67,6 +67,8 @@ func RunWithOptions(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetc
 	}
 	defer tx.Close()
 
+	tx.SetProgress(func(msg string) { fmt.Println("forge:", msg) })
+
 	if err := tx.Commit(); err != nil {
 		return err
 	}
@@ -280,6 +282,8 @@ func downloadAll(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetcher
 		workers = len(jobs)
 	}
 
+	total := len(jobs)
+
 	var (
 		wg       sync.WaitGroup
 		mu       sync.Mutex
@@ -287,12 +291,16 @@ func downloadAll(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetcher
 		sem      = make(chan struct{}, workers)
 	)
 
-	for _, job := range jobs {
+	for i, job := range jobs {
 		sem <- struct{}{}
 		wg.Add(1)
-		go func(job downloadJob) {
+		go func(job downloadJob, idx int) {
 			defer wg.Done()
 			defer func() { <-sem }()
+
+			mu.Lock()
+			fmt.Printf("forge: downloading %s (%d/%d)\n", job.pkg.Name+"-"+job.pkg.Version, idx+1, total)
+			mu.Unlock()
 
 			var lastErr error
 			for _, server := range job.servers {
@@ -310,8 +318,13 @@ func downloadAll(ctx context.Context, cfg *config.Config, fetcher *fetch.Fetcher
 					firstErr = lastErr
 				}
 				mu.Unlock()
+				return
 			}
-		}(job)
+
+			mu.Lock()
+			fmt.Printf("forge: downloaded %s\n", job.pkg.Name+"-"+job.pkg.Version)
+			mu.Unlock()
+		}(job, i)
 	}
 
 	wg.Wait()

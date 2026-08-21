@@ -21,7 +21,8 @@ type Tx struct {
 
 	installBackups map[string]string // rel path = absolute backup path
 	removalBackups map[string]string // rel path = absolute backup path
-	written        []*db.LocalEntry  // DB entries written by this tx
+	written        []*db.LocalEntry
+	progress       func(string) // DB entries written by this tx
 }
 
 // new acquires the database lock and prepares a transaction.
@@ -41,6 +42,17 @@ func New(cfg *config.Config, plan *Plan, filter *archive.PathFilter) (*Tx, error
 }
 
 // releases the database lock.
+// SetProgress installs an optional status reporter used during Commit.
+func (tx *Tx) SetProgress(f func(string)) {
+	tx.progress = f
+}
+
+func (tx *Tx) report(format string, args ...interface{}) {
+	if tx.progress != nil {
+		tx.progress(fmt.Sprintf(format, args...))
+	}
+}
+
 func (tx *Tx) Close() error {
 	return tx.lock.Close()
 }
@@ -76,6 +88,8 @@ func (tx *Tx) Commit() error {
 				}
 			}
 
+			tx.report("installing %s-%s", inst.Pkg.Name, inst.Pkg.Version)
+
 			if _, _, err := archive.ExtractPackageFiltered(
 				inst.Archive,
 				tx.cfg.Root,
@@ -105,6 +119,8 @@ func (tx *Tx) Commit() error {
 					return err
 				}
 			}
+
+			tx.report("removing %s-%s", action.Remove.Entry.Package.Name, action.Remove.Entry.Package.Version)
 
 			if err := tx.applyRemove(action.Remove); err != nil {
 				tx.rollback()

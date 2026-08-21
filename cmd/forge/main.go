@@ -10,6 +10,7 @@ import (
 
 	"forge/internal/config"
 	"forge/internal/db"
+	"forge/internal/env"
 	"forge/internal/fetch"
 	"forge/internal/install"
 	"forge/internal/pkg"
@@ -114,6 +115,9 @@ func main() {
 		runSearch(cfg, cmdArgs)
 	case "clean":
 		runClean(cfg, cmdArgs)
+	case "env":
+		requireArgs(cmd, cmdArgs, 1)
+		runEnv(cfg, cmdArgs)
 	case "repo-add":
 		requireArgs(cmd, cmdArgs, 2)
 		runRepoAdd(cmdArgs)
@@ -355,6 +359,76 @@ func humanSize(n int64) string {
 	}
 }
 
+func runEnv(cfg *config.Config, args []string) {
+	sub := args[0]
+	rest := args[1:]
+
+	switch sub {
+	case "create":
+		requireArgs("env create", rest, 2)
+		syncDBs, fetcher := syncRepos(cfg, false)
+		if err := env.Create(cfg, fetcher, syncDBs, rest[0], rest[1:]); err != nil {
+			fail(err.Error())
+		}
+		fmt.Printf("forge: env %s created\n", rest[0])
+
+	case "enter":
+		requireArgs("env enter", rest, 1)
+		if err := env.Enter(rest[0]); err != nil {
+			fail(err.Error())
+		}
+
+	case "run":
+		requireArgs("env run", rest, 2)
+		// support: forge env run <name> -- <cmd...>
+		idx := -1
+		for i, a := range rest {
+			if a == "--" {
+				idx = i
+				break
+			}
+		}
+		if idx == -1 {
+			idx = 1
+		}
+		name := rest[0]
+		var cmdArgs []string
+		if idx == 1 {
+			cmdArgs = rest[1:]
+		} else {
+			cmdArgs = rest[idx+1:]
+		}
+		if err := env.Run(name, cmdArgs...); err != nil {
+			fail(err.Error())
+		}
+
+	case "list":
+		names, err := env.List()
+		if err != nil {
+			fail(err.Error())
+		}
+		for _, n := range names {
+			fmt.Println(n)
+		}
+
+	case "rm", "remove":
+		requireArgs("env rm", rest, 1)
+		if err := env.Remove(rest[0]); err != nil {
+			fail(err.Error())
+		}
+		fmt.Printf("forge: env %s removed\n", rest[0])
+
+	case "purge":
+		if err := env.Purge(); err != nil {
+			fail(err.Error())
+		}
+		fmt.Println("forge: all envs purged")
+
+	default:
+		fail(fmt.Sprintf("unknown env subcommand %q", sub))
+	}
+}
+
 func printPkgInfo(p *pkg.PackageInfo) {
 	fmt.Printf("Name           : %s\n", p.Name)
 	fmt.Printf("Version        : %s\n", p.Version)
@@ -384,6 +458,12 @@ Usage:
   forge [global flags] info <package>
   forge [global flags] search <term>
   forge [global flags] clean [all]
+  forge env create <name> <package>...
+  forge env enter <name>
+  forge env run <name> -- <command>...
+  forge env list
+  forge env rm <name>
+  forge env purge
   forge repo-add <repo-name> <package-file>...
   forge version 'prints compiled forge version'
 

@@ -94,6 +94,8 @@ func RunWithOptions(cfg *config.Config, targets []string, opts Options) error {
 	}
 	defer tx.Close()
 
+	tx.SetProgress(func(msg string) { fmt.Println("forge:", msg) })
+
 	if err := tx.Commit(); err != nil {
 		return err
 	}
